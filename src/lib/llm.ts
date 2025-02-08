@@ -304,4 +304,18 @@ Provide a clear explanation of the error and how to resolve it.`;
   });
 
   return response.trim();
-}; 
+};
+
+export async function generateLLMResponse(prompt: string, llmConfig: any): Promise<string> {
+  const systemPrompt = `You are a database query analyzer. Your role is to analyze natural language queries,
+understand their intent, and identify if they need previous context. Respond in JSON format as specified in the prompt.
+Be precise and concise in your analysis.`;
+
+  try {
+    const response = await callLLM(systemPrompt, prompt, llmConfig);
+    return response;
+  } catch (error) {
+    console.error('Error generating LLM response:', error);
+    throw error;
+  }
+} 
