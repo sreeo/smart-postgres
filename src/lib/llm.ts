@@ -2,6 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { ChatOllama } from '@langchain/community/chat_models/ollama';
+import { DatabaseSchema, Table } from '@/types/schema';
 
 let llm: ChatOpenAI | ChatOllama;
 
@@ -35,7 +36,7 @@ export const initializeLLM = (config: LLMConfig) => {
   }
 };
 
-const analyzeQueryTemplate = `You are a PostgreSQL expert. Given the following database schema and natural language query, 
+const analyzeQueryTemplate = `You are a PostgreSQL expert. Given the following database schema, natural language query, and context, 
 determine if this requires:
 1. A SQL query to fetch data
 2. A natural language explanation about the database structure
@@ -47,18 +48,21 @@ IMPORTANT: If the query involves ANY of these, it ALWAYS requires user input:
 - Thresholds or limits (e.g., "more than X", "at least Y")
 - Time periods (e.g., "last 7 days", "this month")
 
-If it requires a SQL query with no additional input, respond with: NEEDS_QUERY
-If it requires an explanation, respond with: NEEDS_EXPLANATION
-If it requires additional user input, respond with: NEEDS_INPUT
-
 Database Schema:
 {schema}
 
 User Query: {query}
 
+Previous Context:
+{context}
+
 Respond with ONLY "NEEDS_QUERY", "NEEDS_EXPLANATION", or "NEEDS_INPUT".`;
 
-export const analyzeQueryType = async (schema: any[], query: string) => {
+export const analyzeQueryType = async (
+  schema: DatabaseSchema, 
+  query: string,
+  context?: string | null
+): Promise<'NEEDS_EXPLANATION' | 'NEEDS_INPUT' | 'READY'> => {
   if (!llm) {
     throw new Error('LLM not initialized. Call initializeLLM first.');
   }
@@ -66,20 +70,21 @@ export const analyzeQueryType = async (schema: any[], query: string) => {
   const prompt = PromptTemplate.fromTemplate(analyzeQueryTemplate);
   const chain = prompt.pipe(llm).pipe(new StringOutputParser());
 
-  const schemaString = schema.map(table => {
-    return `Table: ${table.table_name}\nColumns: ${table.columns.map((col: any) => 
-      `${col.column_name} (${col.data_type})`).join(', ')}\n`;
+  const schemaString = schema.tables.map((table: Table) => {
+    return `Table: ${table.name}\nColumns: ${table.columns.map(col => 
+      `${col.name} (${col.type})`).join(', ')}\n`;
   }).join('\n');
 
   const response = await chain.invoke({
     schema: schemaString,
     query: query,
+    context: context || 'No previous context available.',
   });
 
-  return response.trim();
+  return response.trim() as 'NEEDS_EXPLANATION' | 'NEEDS_INPUT' | 'READY';
 };
 
-const identifyInputsTemplate = `You are a PostgreSQL expert. Given the following database schema and natural language query,
+const identifyInputsTemplate = `You are a PostgreSQL expert. Given the following database schema, natural language query, and context,
 identify what additional inputs are needed from the user to generate a complete SQL query.
 
 IMPORTANT: ALWAYS identify inputs for:
@@ -88,15 +93,13 @@ IMPORTANT: ALWAYS identify inputs for:
 - Any thresholds or limits (e.g., "more than X", "at least Y")
 - Any time periods (e.g., "last 7 days", "this month")
 
-For date inputs:
-- Use type "date" for single dates
-- Provide example in ISO format (YYYY-MM-DD)
-- Be explicit about the date's purpose in the description
-
 Database Schema:
 {schema}
 
 User Query: {query}
+
+Previous Context:
+{context}
 
 RULES:
 1. Return a valid JSON array of required inputs
@@ -104,19 +107,13 @@ RULES:
 3. Use descriptive names (e.g., "start_date", "user_id", "min_amount")
 4. Type must be one of: "text", "number", "date"
 5. Return an empty array [] if no inputs are needed
-6. DO NOT include comments or explanations in the JSON
+6. DO NOT include comments or explanations in the JSON`;
 
-Example format (DO NOT COPY, CREATE YOUR OWN BASED ON THE QUERY):
-[
-  {{
-    "name": "start_date",
-    "description": "Start date for filtering transactions",
-    "type": "date",
-    "example": "2024-03-20"
-  }}
-]`;
-
-export const identifyRequiredInputs = async (schema: any[], query: string) => {
+export const identifyRequiredInputs = async (
+  schema: DatabaseSchema, 
+  query: string,
+  context?: string | null
+): Promise<any[]> => {
   if (!llm) {
     throw new Error('LLM not initialized. Call initializeLLM first.');
   }
@@ -124,15 +121,16 @@ export const identifyRequiredInputs = async (schema: any[], query: string) => {
   const prompt = PromptTemplate.fromTemplate(identifyInputsTemplate);
   const chain = prompt.pipe(llm).pipe(new StringOutputParser());
 
-  const schemaString = schema.map(table => {
-    return `Table: ${table.table_name}\nColumns: ${table.columns.map((col: any) => 
-      `${col.column_name} (${col.data_type})`).join(', ')}\n`;
+  const schemaString = schema.tables.map((table: Table) => {
+    return `Table: ${table.name}\nColumns: ${table.columns.map(col => 
+      `${col.name} (${col.type})`).join(', ')}\n`;
   }).join('\n');
 
   try {
     const response = await chain.invoke({
       schema: schemaString,
       query: query,
+      context: context || 'No previous context available.',
     });
 
     console.log('Raw LLM response for input identification:', response);
@@ -181,11 +179,11 @@ export const identifyRequiredInputs = async (schema: any[], query: string) => {
     }
   } catch (error: any) {
     console.error('Error in identifyRequiredInputs:', error);
-    throw new Error(`Failed to identify required inputs: ${error.message}`);
+    throw error;
   }
 };
 
-const sqlGenerationTemplate = `You are a SQL expert. Given the following database schema, natural language query, and user inputs, 
+const sqlGenerationTemplate = `You are a SQL expert. Given the following database schema, natural language query, user inputs, and context, 
 generate a PostgreSQL query that answers the question.
 
 IMPORTANT RULES:
@@ -193,6 +191,7 @@ IMPORTANT RULES:
 2. ALWAYS use the provided user inputs for specific values
 3. If a required input is missing, generate an error message instead of a query
 4. Return ONLY the raw SQL query with no formatting, quotes, backticks, or markdown
+5. Use the context from previous queries to understand what the user is asking about
 
 Database Schema:
 {schema}
@@ -201,10 +200,18 @@ User Query: {query}
 
 User Inputs: {inputs}
 
+Previous Context:
+{context}
+
 The response should be a valid PostgreSQL query with no additional formatting or explanation.
 If any required inputs are missing, respond with "ERROR: Missing required input: <input description>"`;
 
-export const generateSQLQuery = async (schema: any[], query: string, inputs?: Record<string, any>) => {
+export const generateSQLQuery = async (
+  schema: DatabaseSchema, 
+  query: string, 
+  inputs?: any,
+  context?: string | null
+): Promise<string> => {
   if (!llm) {
     throw new Error('LLM not initialized. Call initializeLLM first.');
   }
@@ -212,15 +219,16 @@ export const generateSQLQuery = async (schema: any[], query: string, inputs?: Re
   const prompt = PromptTemplate.fromTemplate(sqlGenerationTemplate);
   const chain = prompt.pipe(llm).pipe(new StringOutputParser());
 
-  const schemaString = schema.map(table => {
-    return `Table: ${table.table_name}\nColumns: ${table.columns.map((col: any) => 
-      `${col.column_name} (${col.data_type})`).join(', ')}\n`;
+  const schemaString = schema.tables.map((table: Table) => {
+    return `Table: ${table.name}\nColumns: ${table.columns.map(col => 
+      `${col.name} (${col.type})`).join(', ')}\n`;
   }).join('\n');
 
   const response = await chain.invoke({
     schema: schemaString,
     query: query,
     inputs: inputs ? JSON.stringify(inputs) : 'No additional inputs provided',
+    context: context || 'No previous context available.',
   });
 
   return response.trim();

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDatabaseSchema, executeQuery, initializeDatabase } from '@/lib/db';
+import { executeQuery, getSchema } from '@/lib/db-client';
 import { 
   generateSQLQuery, 
   initializeLLM, 
@@ -18,18 +18,11 @@ export async function POST(request: Request) {
       query: body.query,
       hasDbConfig: !!body.dbConfig,
       hasLlmConfig: !!body.llmConfig,
-      hasInputs: !!body.inputs
+      hasInputs: !!body.inputs,
+      hasContext: !!body.context
     });
 
-    const { query, dbConfig, llmConfig, inputs } = body;
-
-    // Initialize services if not already initialized
-    try {
-      await initializeDatabase(dbConfig);
-    } catch (error) {
-      console.error('Database initialization error:', error);
-      throw error;
-    }
+    const { query, dbConfig, llmConfig, inputs, context } = body;
 
     try {
       initializeLLM(llmConfig);
@@ -41,12 +34,17 @@ export async function POST(request: Request) {
     try {
       // Get database schema
       console.log('Fetching database schema...');
-      const schema = await getDatabaseSchema();
+      const schema = await getSchema(dbConfig);
       console.log('Schema fetched successfully');
+
+      // Log context if available
+      if (context) {
+        console.log('Using context:', context);
+      }
 
       // Analyze the query type
       console.log('Analyzing query type...');
-      const queryType = await analyzeQueryType(schema, query);
+      const queryType = await analyzeQueryType(schema, query, context);
       console.log('Query type:', queryType);
 
       if (queryType === 'NEEDS_EXPLANATION') {
@@ -59,7 +57,7 @@ export async function POST(request: Request) {
         });
       } else if (queryType === 'NEEDS_INPUT' && !inputs) {
         console.log('Identifying required inputs...');
-        const requiredInputs = await identifyRequiredInputs(schema, query);
+        const requiredInputs = await identifyRequiredInputs(schema, query, context);
         console.log('Required inputs:', requiredInputs);
         return NextResponse.json({
           success: true,
@@ -68,7 +66,7 @@ export async function POST(request: Request) {
         });
       } else {
         console.log('Generating SQL query...');
-        const sqlQuery = await generateSQLQuery(schema, query, inputs);
+        const sqlQuery = await generateSQLQuery(schema, query, inputs, context);
         console.log('Generated SQL:', sqlQuery);
 
         if (sqlQuery.startsWith('ERROR:')) {
@@ -77,7 +75,7 @@ export async function POST(request: Request) {
         }
 
         console.log('Executing query...');
-        const result = await executeQuery(sqlQuery);
+        const result = await executeQuery(dbConfig, sqlQuery);
         console.log('Query executed successfully');
 
         console.log('Validating result...');

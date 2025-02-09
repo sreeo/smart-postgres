@@ -100,6 +100,8 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
   const [currentPage, setCurrentPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationState | null>(null);
   const [showSchemaViewer, setShowSchemaViewer] = useState(false);
+  const [useContext, setUseContext] = useState(false);
+  const [contextSummary, setContextSummary] = useState<string | null>(null);
 
   const fetchSchema = async () => {
     setSchemaLoading(true);
@@ -139,12 +141,37 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
     fetchSchema();
   }, [config.dbConfig]);
 
+  const getQueryContext = () => {
+    if (!history.length) return null;
+    
+    const lastQuery = history[history.length - 1];
+    if (!lastQuery) return null;
+
+    let context = `Previous query: "${lastQuery.naturalQuery}"\n`;
+    
+    if (lastQuery.type === 'query' && lastQuery.sqlQuery) {
+      context += `SQL used: ${lastQuery.sqlQuery}\n`;
+      
+      if (lastQuery.result && lastQuery.result.length > 0) {
+        const resultSummary = lastQuery.result.length === 1 
+          ? JSON.stringify(lastQuery.result[0])
+          : `${lastQuery.result.length} rows, first row: ${JSON.stringify(lastQuery.result[0])}`;
+        context += `Result: ${resultSummary}`;
+      }
+    } else if (lastQuery.type === 'explanation') {
+      context += `Explanation: ${lastQuery.explanation}`;
+    }
+
+    return context;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
 
     setLoading(true);
     try {
+      const contextInfo = useContext ? getQueryContext() : null;
       const response = await fetch('/api/query', {
         method: 'POST',
         headers: {
@@ -156,6 +183,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
           llmConfig,
           dbSchema,
           page: currentPage,
+          context: contextInfo,
         }),
       });
 
@@ -371,6 +399,16 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
       setLoading(false);
     }
   };
+
+  // Update context summary when useContext changes or history updates
+  useEffect(() => {
+    if (useContext) {
+      const context = getQueryContext();
+      setContextSummary(context);
+    } else {
+      setContextSummary(null);
+    }
+  }, [useContext, history]);
 
   return (
     <div className={`flex flex-col h-full ${theme === 'dark' ? 'dark' : ''}`}>
@@ -740,22 +778,48 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
         )}
 
         <form onSubmit={handleSubmit}>
-          <div className="flex space-x-4">
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ask a question about your database..."
-              className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
-              disabled={loading || !!pendingQuery}
-            />
-            <button
-              type="submit"
-              disabled={loading || !!pendingQuery}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : 'Ask'}
-            </button>
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="useContext"
+                checked={useContext}
+                onChange={(e) => setUseContext(e.target.checked)}
+                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+              />
+              <label htmlFor="useContext" className="text-sm text-gray-700 dark:text-gray-300">
+                Use previous query as context
+              </label>
+            </div>
+
+            {contextSummary && (
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-md">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Context being used:
+                </h4>
+                <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+                  {contextSummary}
+                </pre>
+              </div>
+            )}
+
+            <div className="flex space-x-4">
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ask a question about your database..."
+                className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
+                disabled={loading || !!pendingQuery}
+              />
+              <button
+                type="submit"
+                disabled={loading || !!pendingQuery}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+              >
+                {loading ? 'Processing...' : 'Ask'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
