@@ -1,13 +1,16 @@
 import { Pool } from 'pg';
 import { DatabaseSchema } from '@/types/schema';
 
+const DEFAULT_PAGE_SIZE = 200;
+
 let currentPool: Pool | null = null;
 
-export const executeQuery = async (dbConfig: any, query: string) => {
+export const executeQuery = async (dbConfig: any, query: string, page: number = 1) => {
+  let pool: Pool | null = null;
   try {
-    const pool = new Pool(dbConfig);
+    pool = new Pool(dbConfig);
     
-    // Strip any markdown formatting
+    // Strip any markdown formatting and trailing semicolons
     let cleanQuery = query;
     if (query.startsWith('```')) {
       cleanQuery = query
@@ -15,9 +18,13 @@ export const executeQuery = async (dbConfig: any, query: string) => {
         .replace(/\n```$/, '')       // Remove closing ```
         .trim();
     }
+    // Remove trailing semicolons and whitespace
+    cleanQuery = cleanQuery.replace(/;+\s*$/, '').trim();
+
+    console.log('Executing query:', cleanQuery);
 
     // Normalize query for checking
-    const normalizedQuery = cleanQuery.trim().toLowerCase();
+    const normalizedQuery = cleanQuery.toLowerCase();
     
     // List of disallowed operation keywords
     const writeOperations = [
@@ -66,11 +73,76 @@ export const executeQuery = async (dbConfig: any, query: string) => {
       throw new Error('Write operations are not allowed in read-only mode. Only SELECT and read-only operations are permitted.');
     }
 
-    const result = await pool.query(cleanQuery);
-    await pool.end();
-    return result;
+    // Check if it's an aggregate query (has GROUP BY or aggregate functions)
+    const isAggregateQuery = /\b(count|sum|avg|min|max|group\s+by)\b/i.test(normalizedQuery);
+
+    if (isAggregateQuery) {
+      // For aggregate queries, don't paginate
+      const result = await pool.query(cleanQuery);
+      console.log('Aggregate query executed successfully');
+      console.log('Result:', {
+        rowCount: result.rowCount,
+        fields: result.fields?.map(f => f.name),
+        sampleRow: result.rows[0]
+      });
+
+      return {
+        rows: result.rows,
+        rowCount: result.rowCount || result.rows.length,
+        fields: result.fields,
+        pagination: null
+      };
+    } else {
+      // For non-aggregate queries, add pagination
+      // Get total count first using a safe CTE
+      const countQuery = `WITH user_query AS (${cleanQuery}) SELECT COUNT(*) as total FROM user_query`;
+      const countResult = await pool.query(countQuery);
+      const total = parseInt(countResult.rows[0].total);
+
+      // Add pagination to the query using a safe CTE
+      const paginatedQuery = `WITH user_query AS (${cleanQuery}) 
+        SELECT * FROM user_query 
+        LIMIT ${DEFAULT_PAGE_SIZE} 
+        OFFSET ${(page - 1) * DEFAULT_PAGE_SIZE}`;
+
+      const result = await pool.query(paginatedQuery);
+      console.log('Query executed successfully with pagination');
+      console.log('Result:', {
+        rowCount: result.rowCount,
+        fields: result.fields?.map(f => f.name),
+        sampleRow: result.rows[0],
+        total,
+        page
+      });
+
+      return {
+        rows: result.rows,
+        rowCount: result.rowCount || result.rows.length,
+        fields: result.fields,
+        pagination: {
+          page,
+          pageSize: DEFAULT_PAGE_SIZE,
+          total,
+          totalPages: Math.ceil(total / DEFAULT_PAGE_SIZE),
+          hasMore: page * DEFAULT_PAGE_SIZE < total
+        }
+      };
+    }
   } catch (error: any) {
-    throw error;
+    console.error('Query execution error:', {
+      message: error.message,
+      code: error.code,
+      position: error.position,
+      detail: error.detail,
+      hint: error.hint
+    });
+    throw new Error(error.message || 'An error occurred while executing the query');
+  } finally {
+    if (pool) {
+      await pool.end().catch(err => {
+        console.error('Error closing pool:', err);
+      });
+    }
   }
 };
 

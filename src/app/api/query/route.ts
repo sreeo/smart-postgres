@@ -19,16 +19,17 @@ export async function POST(request: Request) {
       hasDbConfig: !!body.dbConfig,
       hasLlmConfig: !!body.llmConfig,
       hasInputs: !!body.inputs,
-      hasContext: !!body.context
+      hasContext: !!body.context,
+      page: body.page || 1
     });
 
-    const { query, dbConfig, llmConfig, inputs, context } = body;
+    const { query, dbConfig, llmConfig, inputs, context, page = 1 } = body;
 
     try {
       initializeLLM(llmConfig);
     } catch (error) {
       console.error('LLM initialization error:', error);
-      throw error;
+      throw new Error('Failed to initialize LLM: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
 
     try {
@@ -75,12 +76,18 @@ export async function POST(request: Request) {
         }
 
         console.log('Executing query...');
-        const result = await executeQuery(dbConfig, sqlQuery);
+        const result = await executeQuery(dbConfig, sqlQuery, page);
         console.log('Query executed successfully');
 
-        console.log('Validating result...');
-        const validation = await validateQueryResult(sqlQuery, result.rows, query);
-        console.log('Validation result:', validation);
+        let validation = 'SUCCESS';
+        try {
+          console.log('Validating result...');
+          validation = await validateQueryResult(sqlQuery, result.rows, query);
+          console.log('Validation result:', validation);
+        } catch (validationError) {
+          console.error('Validation error:', validationError);
+          validation = 'Could not validate query result';
+        }
 
         return NextResponse.json({
           success: true,
@@ -88,25 +95,31 @@ export async function POST(request: Request) {
           query: sqlQuery,
           result: result.rows,
           validation,
+          pagination: result.pagination
         });
       }
     } catch (error: any) {
       console.error('Error in query processing:', error);
-      // Get suggestion from LLM for the error
-      const suggestion = await getSuggestionForError(error.message, query);
-      console.log('Error suggestion:', suggestion);
+      let errorMessage = error?.message || 'An error occurred during query processing';
+      let suggestion = '';
+      
+      try {
+        suggestion = await getSuggestionForError(errorMessage, query);
+      } catch (suggestionError) {
+        console.error('Error getting suggestion:', suggestionError);
+      }
       
       return NextResponse.json({
         success: false,
-        error: error.message,
-        suggestion,
+        error: errorMessage,
+        suggestion: suggestion || 'No suggestion available',
       }, { status: 500 });
     }
   } catch (error: any) {
     console.error('API Error:', error);
     return NextResponse.json({
       success: false,
-      error: error.message,
+      error: error?.message || 'An unexpected error occurred',
     }, { status: 500 });
   } finally {
     console.log('=== API Request Complete ===\n');

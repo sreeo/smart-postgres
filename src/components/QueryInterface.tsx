@@ -215,7 +215,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
           naturalQuery: query,
           ...(data.type === 'query' ? {
             sqlQuery: data.query,
-            result: data.data,
+            result: data.result,
             validation: data.validation,
             pagination: data.pagination,
           } : {
@@ -636,34 +636,46 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                   </div>
                   {item.result && item.result.length > 0 ? (
                     <div className="mt-2 overflow-x-auto max-h-[300px]">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0">
-                          <tr>
-                            {Object.keys(item.result[0]).map((key) => (
-                              <th
-                                key={key}
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider bg-gray-50"
-                              >
-                                {key}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {item.result.map((row, rowIndex) => (
-                            <tr key={rowIndex}>
-                              {Object.values(row).map((value: any, cellIndex) => (
-                                <td
-                                  key={cellIndex}
-                                  className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
+                      {/* Check if it's an aggregate result */}
+                      {item.result.length === 1 && Object.keys(item.result[0]).length === 1 ? (
+                        <div className="text-lg font-medium text-gray-900">
+                          {Object.entries(item.result[0]).map(([key, value]) => (
+                            <div key={key} className="flex items-center space-x-2">
+                              <span className="text-gray-600">{key}:</span>
+                              <span>{value?.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              {Object.keys(item.result[0]).map((key) => (
+                                <th
+                                  key={key}
+                                  className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider bg-gray-50"
                                 >
-                                  {JSON.stringify(value)}
-                                </td>
+                                  {key}
+                                </th>
                               ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {item.result.map((row, rowIndex) => (
+                              <tr key={rowIndex}>
+                                {Object.values(row).map((value: any, cellIndex) => (
+                                  <td
+                                    key={cellIndex}
+                                    className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
+                                  >
+                                    {JSON.stringify(value)}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
                   ) : (
                     <p className="mt-2 text-gray-900">No results found</p>
