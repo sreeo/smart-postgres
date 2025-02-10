@@ -244,7 +244,7 @@ User Question: {query}
 
 Provide a natural language explanation that answers the user's question about the database structure.`;
 
-export const generateSchemaExplanation = async (schema: any[], query: string) => {
+export const generateSchemaExplanation = async (schema: DatabaseSchema, query: string) => {
   if (!llm) {
     throw new Error('LLM not initialized. Call initializeLLM first.');
   }
@@ -252,9 +252,9 @@ export const generateSchemaExplanation = async (schema: any[], query: string) =>
   const prompt = PromptTemplate.fromTemplate(schemaExplanationTemplate);
   const chain = prompt.pipe(llm).pipe(new StringOutputParser());
 
-  const schemaString = schema.map(table => {
-    return `Table: ${table.table_name}\nColumns: ${table.columns.map((col: any) => 
-      `${col.column_name} (${col.data_type})`).join(', ')}\n`;
+  const schemaString = schema.tables.map(table => {
+    return `Table: ${table.name}\nColumns: ${table.columns.map(col => 
+      `${col.name} (${col.type})`).join(', ')}\n`;
   }).join('\n');
 
   const response = await chain.invoke({
@@ -318,18 +318,4 @@ Provide a clear explanation of the error and how to resolve it.`;
   });
 
   return response.trim();
-};
-
-export async function generateLLMResponse(prompt: string, llmConfig: any): Promise<string> {
-  const systemPrompt = `You are a database query analyzer. Your role is to analyze natural language queries,
-understand their intent, and identify if they need previous context. Respond in JSON format as specified in the prompt.
-Be precise and concise in your analysis.`;
-
-  try {
-    const response = await callLLM(systemPrompt, prompt, llmConfig);
-    return response;
-  } catch (error) {
-    console.error('Error generating LLM response:', error);
-    throw error;
-  }
-} 
+}; 

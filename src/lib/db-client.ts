@@ -1,9 +1,7 @@
 import { Pool } from 'pg';
 import { DatabaseSchema } from '@/types/schema';
 
-const DEFAULT_PAGE_SIZE = 200;
-
-let currentPool: Pool | null = null;
+export const DEFAULT_PAGE_SIZE = 200;
 
 export const executeQuery = async (dbConfig: any, query: string, page: number = 1) => {
   let pool: Pool | null = null;
@@ -136,19 +134,22 @@ export const executeQuery = async (dbConfig: any, query: string, page: number = 
       detail: error.detail,
       hint: error.hint
     });
-    throw new Error(error.message || 'An error occurred while executing the query');
+    throw error; // Throw the original error to preserve stack trace and details
   } finally {
     if (pool) {
-      await pool.end().catch(err => {
+      try {
+        await pool.end();
+      } catch (err) {
         console.error('Error closing pool:', err);
-      });
+      }
     }
   }
 };
 
 export const getSchema = async (dbConfig: any): Promise<DatabaseSchema> => {
+  let pool: Pool | null = null;
   try {
-    const pool = new Pool(dbConfig);
+    pool = new Pool(dbConfig);
     
     const schemaQuery = `
       WITH RECURSIVE table_columns AS (
@@ -297,12 +298,18 @@ export const getSchema = async (dbConfig: any): Promise<DatabaseSchema> => {
     `;
 
     const result = await pool.query(schemaQuery);
-    await pool.end();
-    
     return {
       tables: result.rows[0].schema || []
     };
   } catch (error: any) {
     throw error;
+  } finally {
+    if (pool) {
+      try {
+        await pool.end();
+      } catch (err) {
+        console.error('Error closing pool:', err);
+      }
+    }
   }
 }; 
