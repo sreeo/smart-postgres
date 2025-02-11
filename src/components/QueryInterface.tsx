@@ -27,6 +27,10 @@ interface QueryResult {
     suggestion?: string;
   };
   pagination?: PaginationState;
+  timing?: {
+    startTime: string;
+    duration: number;
+  };
 }
 
 interface RequiredInput {
@@ -149,14 +153,16 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
 
     let context = `Previous query: "${lastQuery.naturalQuery}"\n`;
     
-    if (lastQuery.type === 'query' && lastQuery.sqlQuery) {
-      context += `SQL used: ${lastQuery.sqlQuery}\n`;
-      
-      if (lastQuery.result && lastQuery.result.length > 0) {
-        const resultSummary = lastQuery.result.length === 1 
-          ? JSON.stringify(lastQuery.result[0])
-          : `${lastQuery.result.length} rows, first row: ${JSON.stringify(lastQuery.result[0])}`;
-        context += `Result: ${resultSummary}`;
+    if (lastQuery.type === 'query') {
+      if (lastQuery.sqlQuery) {
+        context += `SQL used: ${lastQuery.sqlQuery}\n`;
+        
+        if (lastQuery.result && lastQuery.result.length > 0) {
+          const resultSummary = lastQuery.result.length === 1 
+            ? JSON.stringify(lastQuery.result[0])
+            : `${lastQuery.result.length} rows, first row: ${JSON.stringify(lastQuery.result[0])}`;
+          context += `Result: ${resultSummary}`;
+        }
       }
     } else if (lastQuery.type === 'explanation') {
       context += `Explanation: ${lastQuery.explanation}`;
@@ -170,6 +176,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
     if (!query.trim()) return;
 
     setLoading(true);
+    const startTime = new Date();
     try {
       const contextInfo = useContext ? getQueryContext() : null;
       const response = await fetch('/api/query', {
@@ -188,6 +195,8 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
       });
 
       const data = await response.json();
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
       
       if (!data.success) {
         setHistory(prev => [...prev, {
@@ -199,6 +208,10 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
             message: data.error,
             suggestion: data.suggestion,
           },
+          timing: {
+            startTime: startTime.toISOString(),
+            duration: duration
+          }
         }]);
         return;
       }
@@ -221,11 +234,17 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
           } : {
             explanation: data.explanation,
           }),
+          timing: {
+            startTime: startTime.toISOString(),
+            duration: duration
+          }
         }]);
         setPagination(data.pagination);
         setQuery('');
       }
     } catch (error: any) {
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
       setHistory(prev => [...prev, {
         type: 'query',
         naturalQuery: query,
@@ -234,6 +253,10 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
         error: {
           message: error.message,
         },
+        timing: {
+          startTime: startTime.toISOString(),
+          duration: duration
+        }
       }]);
     } finally {
       setLoading(false);
@@ -516,7 +539,9 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
                     >
                       <optgroup label="Anthropic">
+                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
                         <option value="anthropic/claude-3-opus-20240229">Claude 3 Opus</option>
+                        <option value="anthropic/claude-3-haiku-20240307">Claude 3 Haiku</option>
                         <option value="anthropic/claude-3-sonnet-20240229">Claude 3 Sonnet</option>
                         <option value="anthropic/claude-2.1">Claude 2.1</option>
                         <option value="anthropic/claude-2.0">Claude 2.0</option>
@@ -529,15 +554,14 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                       <optgroup label="Google">
                         <option value="google/gemini-pro">Gemini Pro</option>
                       </optgroup>
-                      <optgroup label="Meta">
-                        <option value="meta/llama-2-70b-chat">Llama 2 70B</option>
-                        <option value="meta/llama-2-13b-chat">Llama 2 13B</option>
-                      </optgroup>
                       <optgroup label="Mistral">
-                        <option value="mistral/mistral-large-latest">Mistral Large</option>
-                        <option value="mistral/mistral-medium-latest">Mistral Medium</option>
-                        <option value="mistral/mistral-small-latest">Mistral Small</option>
+                        <option value="mistralai/codestral-2501">Mistral CodeStarl</option>
                       </optgroup>
+                    <optgroup label="Deepseek">
+                      <option value="deepseek/deepseek-r1-distill-llama-70b:free">Deepseek R1 Distill Llama 70B</option>
+                      <option value="deepseek/deepseek-chat:free">Deepseek Chat</option>
+                      <option value="deepseek/deepseek-r1">Deepseek R1</option>
+                    </optgroup>
                     </select>
                   </div>
                   <div>
@@ -594,7 +618,14 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
         {history.map((item, index) => (
           <div key={index} className="space-y-2">
             <div className="bg-gray-100 p-4 rounded-lg">
-              <h3 className="font-mono text-sm text-gray-900">Your Question:</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="font-mono text-sm text-gray-900">Your Question:</h3>
+                {item.timing && (
+                  <span className="text-xs text-gray-600">
+                    {new Date(item.timing.startTime).toLocaleTimeString()} • {(item.timing.duration / 1000).toFixed(2)}s
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-gray-900">{item.naturalQuery}</p>
             </div>
 
