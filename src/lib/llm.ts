@@ -42,6 +42,16 @@ determine if this requires:
 2. A natural language explanation about the database structure
 3. Additional user input before generating SQL
 
+For queries about PostgreSQL monitoring, performance, or administration:
+   - You can use system catalogs (pg_*) and views even if not in the schema
+   - Common monitoring views include:
+     * pg_stat_activity: For current session/query information
+     * pg_locks: For lock information
+     * pg_stat_statements: For query performance statistics
+     * pg_stat_database: For database-wide statistics
+   - Check that necessary extensions (e.g., pg_stat_statements) are enabled
+  Try returning a query first, and only if that fails, provide an explanation.
+
 IMPORTANT: If the query involves ANY of these, it ALWAYS requires user input:
 - Specific dates or date ranges
 - Specific IDs or values to filter by
@@ -183,7 +193,7 @@ export const identifyRequiredInputs = async (
   }
 };
 
-const sqlGenerationTemplate = `You are a SQL expert. Given the following database schema, natural language query, user inputs, and context, 
+const sqlGenerationTemplate = `You are a PostgreSQL expert. Given the following database schema, natural language query, user inputs, and context, 
 generate a PostgreSQL query that answers the question.
 
 IMPORTANT RULES:
@@ -192,6 +202,14 @@ IMPORTANT RULES:
 3. If a required input is missing, generate an error message instead of a query
 4. Return ONLY the raw SQL query with no formatting, quotes, backticks, or markdown
 5. Use the context from previous queries to understand what the user is asking about
+6. For queries about PostgreSQL monitoring, performance, or administration:
+   - You can use system catalogs (pg_*) and views even if not in the schema
+   - Common monitoring views include:
+     * pg_stat_activity: For current session/query information
+     * pg_locks: For lock information
+     * pg_stat_statements: For query performance statistics
+     * pg_stat_database: For database-wide statistics
+   - Check that necessary extensions (e.g., pg_stat_statements) are enabled
 
 Database Schema:
 {schema}
@@ -234,8 +252,16 @@ export const generateSQLQuery = async (
   return response.trim();
 };
 
-const schemaExplanationTemplate = `You are a database expert. Given the following database schema and user's question,
-provide a clear and concise explanation about the database structure.
+const schemaExplanationTemplate = `You are a postgresql database expert. Given the following database schema and user's question,
+provide a clear and concise explanation about the database structure. 
+For queries about PostgreSQL monitoring, performance, or administration:
+   - You can use system catalogs (pg_*) and views even if not in the schema
+   - Common monitoring views include:
+     * pg_stat_activity: For current session/query information
+     * pg_locks: For lock information
+     * pg_stat_statements: For query performance statistics
+     * pg_stat_database: For database-wide statistics
+   - Check that necessary extensions (e.g., pg_stat_statements) are enabled
 
 Database Schema:
 {schema}
