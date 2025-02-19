@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import SchemaViewer from './SchemaViewer';
 
@@ -106,6 +106,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
   const [showSchemaViewer, setShowSchemaViewer] = useState(false);
   const [useContext, setUseContext] = useState(false);
   const [contextSummary, setContextSummary] = useState<string | null>(null);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchSchema = async () => {
     setSchemaLoading(true);
@@ -144,6 +145,12 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
   useEffect(() => {
     fetchSchema();
   }, [config.dbConfig]);
+
+  useEffect(() => {
+    if (resultsContainerRef.current) {
+      resultsContainerRef.current.scrollTop = resultsContainerRef.current.scrollHeight;
+    }
+  }, [history]);
 
   const getQueryContext = () => {
     if (!history.length) return null;
@@ -614,7 +621,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white dark:bg-gray-800">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white dark:bg-gray-800" ref={resultsContainerRef}>
         {history.map((item, index) => (
           <div key={index} className="space-y-2">
             <div className="bg-gray-100 p-4 rounded-lg">
@@ -647,7 +654,79 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
             ) : (
               <>
                 <div className="bg-gray-100 p-4 rounded-lg">
-                  <h3 className="font-mono text-sm text-gray-900">Generated SQL:</h3>
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-mono text-sm text-gray-900">Generated SQL:</h3>
+                    {!item.error && item.sqlQuery && (
+                      <button
+                        onClick={async () => {
+                          setLoading(true);
+                          const startTime = new Date();
+                          try {
+                            const response = await fetch('/api/query/execute', {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                query: item.sqlQuery,
+                                dbConfig: config.dbConfig,
+                                page: 1,
+                              }),
+                            });
+
+                            const data = await response.json();
+                            const endTime = new Date();
+                            const duration = endTime.getTime() - startTime.getTime();
+
+                            if (!data.success) {
+                              throw new Error(data.error);
+                            }
+
+                            // Add the rerun result to history
+                            setHistory(prev => [...prev, {
+                              type: 'query',
+                              naturalQuery: `Rerun: ${item.naturalQuery}`,
+                              sqlQuery: item.sqlQuery,
+                              result: data.data,
+                              validation: 'SUCCESS',
+                              pagination: data.pagination,
+                              timing: {
+                                startTime: startTime.toISOString(),
+                                duration: duration
+                              }
+                            }]);
+                            setPagination(data.pagination);
+                          } catch (error: any) {
+                            const endTime = new Date();
+                            const duration = endTime.getTime() - startTime.getTime();
+                            setHistory(prev => [...prev, {
+                              type: 'query',
+                              naturalQuery: `Rerun: ${item.naturalQuery}`,
+                              sqlQuery: item.sqlQuery,
+                              result: [],
+                              validation: 'ERROR',
+                              error: {
+                                message: error.message,
+                              },
+                              timing: {
+                                startTime: startTime.toISOString(),
+                                duration: duration
+                              }
+                            }]);
+                          } finally {
+                            setLoading(false);
+                          }
+                        }}
+                        className="inline-flex items-center px-2 py-1 text-xs border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        disabled={loading}
+                      >
+                        <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Rerun
+                      </button>
+                    )}
+                  </div>
                   <pre className="mt-2 p-2 bg-gray-800 text-white rounded overflow-x-auto">
                     {item.sqlQuery}
                   </pre>
@@ -667,8 +746,8 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                   </div>
                   {item.result && item.result.length > 0 ? (
                     <div className="mt-2 overflow-x-auto max-h-[300px]">
-                      {/* Check if it's an aggregate result */}
-                      {item.result.length === 1 && Object.keys(item.result[0]).length === 1 ? (
+                      {// Check if it's an aggregate result
+                      item.result.length === 1 && Object.keys(item.result[0]).length === 1 ? (
                         <div className="text-lg font-medium text-gray-900">
                           {Object.entries(item.result[0]).map(([key, value]) => (
                             <div key={key} className="flex items-center space-x-2">
@@ -723,8 +802,8 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
           </div>
         ))}
         
-        {/* Add pagination controls */}
-        {pagination && pagination.totalPages > 1 && (
+        {// Add pagination controls
+        pagination && pagination.totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 sm:px-6">
             <div className="flex items-center">
               <p className="text-sm text-gray-700 dark:text-gray-300">
@@ -846,29 +925,29 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
               </div>
             )}
 
-            <div className="flex space-x-4">
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask a question about your database..."
-                className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
-                disabled={loading || !!pendingQuery}
-              />
-              <button
-                type="submit"
-                disabled={loading || !!pendingQuery}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-              >
-                {loading ? 'Processing...' : 'Ask'}
-              </button>
+        <div className="flex space-x-4">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Ask a question about your database..."
+            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
+            disabled={loading || !!pendingQuery}
+          />
+          <button
+            type="submit"
+            disabled={loading || !!pendingQuery}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          >
+            {loading ? 'Processing...' : 'Ask'}
+          </button>
             </div>
-          </div>
-        </form>
+        </div>
+      </form>
       </div>
 
-      {/* Add schema viewer only if dbSchema exists */}
-      {dbSchema && (
+      {// Add schema viewer only if dbSchema exists
+      dbSchema && (
         <SchemaViewer
           schema={dbSchema}
           isOpen={showSchemaViewer}
