@@ -27,8 +27,10 @@ Built with Next.js, TypeScript, and Tailwind CSS, this client combines the power
 
 ### 🎨 Modern UI/UX
 - Clean, responsive design
-- Broken dark mode support
+- Dark mode support
 - Syntax highlighting for SQL
+- Smart text truncation with copy functionality
+- Intelligent number formatting
 - Paginated results
 - CSV export functionality
 - Error handling with suggestions
@@ -37,15 +39,15 @@ Built with Next.js, TypeScript, and Tailwind CSS, this client combines the power
 - Support for multiple LLM providers:
   - OpenRouter (Claude, GPT-4, etc.)
   - Ollama (Local models)
-- Configurable model settings
-- API key management
 
 ### 📈 Advanced Features
 - Query history tracking
+- Schema caching for improved performance
 - Pagination for large datasets
 - Real-time schema updates
 - Table statistics and metrics
 - Query validation and optimization suggestions
+- Support for system catalog queries (pg_stat_activity, pg_locks, etc.)
 
 ### 🔒 Security
 - Secure credential management
@@ -105,15 +107,6 @@ Configure your LLM provider in the UI:
 ## 🤝 Contributing
 
 While this project was AI-generated, contributions are welcome! Please feel free to submit issues and pull requests.
-
-## 🎯 Future Enhancements
-
-- [ ] Query templates
-- [ ] Schema change tracking
-- [ ] Query optimization suggestions
-- [ ] Enhanced visualization options
-- [ ] Multi-database support
-- [ ] Collaborative features
 
 ## 🌟 Acknowledgments
 

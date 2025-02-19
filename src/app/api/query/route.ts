@@ -9,6 +9,7 @@ import {
   generateSchemaExplanation,
   identifyRequiredInputs
 } from '@/lib/llm';
+import { getCachedSchema, cacheSchema } from '@/lib/schema-cache';
 
 export async function POST(request: Request) {
   try {
@@ -33,10 +34,21 @@ export async function POST(request: Request) {
     }
 
     try {
-      // Get database schema
-      console.log('Fetching database schema...');
-      const schema = await getSchema(dbConfig);
-      console.log('Schema fetched successfully');
+      // Try to get schema from cache first
+      console.log('Checking schema cache...');
+      let schema = getCachedSchema(dbConfig);
+      
+      if (!schema) {
+        console.log('Cache miss. Fetching database schema...');
+        schema = await getSchema(dbConfig);
+        console.log('Schema fetched successfully');
+        
+        // Cache the schema for future use
+        cacheSchema(dbConfig, schema);
+        console.log('Schema cached successfully');
+      } else {
+        console.log('Using cached schema');
+      }
 
       // Log context if available
       if (context) {

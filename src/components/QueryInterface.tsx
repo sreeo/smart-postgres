@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import SchemaViewer from './SchemaViewer';
+import TruncatedText from './TruncatedText';
 
 interface QueryInterfaceProps {
   config: {
@@ -541,7 +542,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                     <select
                       id="model"
                       name="model"
-                      value={llmConfig.model || 'anthropic/claude-3-opus-20240229'}
+                      value={llmConfig.model || 'anthropic/claude-3.5-sonnet'}
                       onChange={handleLLMConfigChange}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
                     >
@@ -752,7 +753,15 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                           {Object.entries(item.result[0]).map(([key, value]) => (
                             <div key={key} className="flex items-center space-x-2">
                               <span className="text-gray-600">{key}:</span>
-                              <span>{value?.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}</span>
+                              <TruncatedText 
+                                text={
+                                  value === null ? 'null' :
+                                  typeof value === 'object' ? JSON.stringify(value) :
+                                  typeof value === 'number' ? value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") :
+                                  String(value)
+                                } 
+                                preserveNumbers={typeof value === 'number'}
+                              />
                             </div>
                           ))}
                         </div>
@@ -778,7 +787,15 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                                     key={cellIndex}
                                     className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
                                   >
-                                    {JSON.stringify(value)}
+                                    <TruncatedText 
+                                      text={
+                                        value === null ? 'null' :
+                                        typeof value === 'object' ? JSON.stringify(value) :
+                                        typeof value === 'boolean' ? value.toString() :
+                                        String(value)
+                                      } 
+                                      preserveNumbers={typeof value === 'number'}
+                                    />
                                   </td>
                                 ))}
                               </tr>

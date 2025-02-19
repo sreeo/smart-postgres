@@ -244,7 +244,7 @@ export default function ConfigForm({ onConnect }: ConfigFormProps) {
             onChange={handleChange}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
           >
-            <option value="openrouter">OpenRouter (Claude)</option>
+            <option value="openrouter">OpenRouter</option>
             <option value="ollama">Ollama (Local)</option>
           </select>
         </div>

@@ -17,7 +17,7 @@ export const initializeLLM = (config: LLMConfig) => {
   if (config.provider === 'openrouter') {
     llm = new ChatOpenAI({
       openAIApiKey: config.apiKey,
-      modelName: config.model || 'anthropic/claude-3-opus-20240229',
+      modelName: config.model || 'anthropic/claude-3-sonnet-20240229',
       configuration: {
         baseURL: 'https://openrouter.ai/api/v1',
         defaultHeaders: {
