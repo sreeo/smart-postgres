@@ -657,7 +657,21 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                 <div className="bg-gray-100 p-4 rounded-lg">
                   <div className="flex justify-between items-center">
                     <h3 className="font-mono text-sm text-gray-900">Generated SQL:</h3>
+                    <div className="flex space-x-2">
                     {!item.error && item.sqlQuery && (
+                      <>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(item.sqlQuery || '');
+                            // You could add a toast notification here
+                          }}
+                          className="inline-flex items-center px-2 py-1 text-xs border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        >
+                          <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                          </svg>
+                          Copy
+                        </button>
                       <button
                         onClick={async () => {
                           setLoading(true);
@@ -726,7 +740,9 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                         </svg>
                         Rerun
                       </button>
+                      </>
                     )}
+                    </div>
                   </div>
                   <pre className="mt-2 p-2 bg-gray-800 text-white rounded overflow-x-auto">
                     {item.sqlQuery}
@@ -943,12 +959,19 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
             )}
 
         <div className="flex space-x-4">
-          <input
-            type="text"
+          <textarea
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!loading && !pendingQuery && query.trim()) {
+                  handleSubmit(e);
+                }
+              }
+            }}
             placeholder="Ask a question about your database..."
-            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
+            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 min-h-[80px] resize-y"
             disabled={loading || !!pendingQuery}
           />
           <button
