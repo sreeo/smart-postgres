@@ -961,7 +961,12 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
         <div className="flex space-x-4">
           <textarea
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              // Auto-adjust height
+              e.target.style.height = 'auto';
+              e.target.style.height = `${e.target.scrollHeight}px`;
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -971,7 +976,8 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
               }
             }}
             placeholder="Ask a question about your database..."
-            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 min-h-[80px] resize-y"
+            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 min-h-[80px] overflow-y-hidden"
+            style={{ resize: 'none' }}
             disabled={loading || !!pendingQuery}
           />
           <button
