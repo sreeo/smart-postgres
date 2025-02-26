@@ -97,8 +97,20 @@ Configure your database connection directly in the UI:
 
 ### LLM Provider Settings
 Configure your LLM provider in the UI:
-- **OpenRouter**:
-  - API Key
+
+#### OpenRouter
+- API Key (required)
+- Model selection from available models
+- Custom base URL (optional)
+
+#### Custom OpenAI-Compatible Endpoints
+The application supports any API endpoint that follows the OpenAI API specification:
+- Custom API endpoint URL
+- API Key
+- Available models list
+- Custom parameters (temperature, max tokens, etc.)
+
+> **Note**: When using custom endpoints, ensure they follow the OpenAI API specification for chat completions. The endpoint should accept requests in the OpenAI format and return responses in the same structure.
   - Model selection (Claude, GPT-4, etc.)
 - **Ollama**:
   - Base URL
