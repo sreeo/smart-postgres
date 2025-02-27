@@ -3,34 +3,29 @@ import { PromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { ChatOllama } from '@langchain/community/chat_models/ollama';
 import { DatabaseSchema, Table } from '@/types/schema';
+import { LLMConfig, getConfig, llmConfigSchema } from '@/config/llm';
 
 let llm: ChatOpenAI | ChatOllama;
 
-interface LLMConfig {
-  provider: 'openrouter' | 'ollama';
-  apiKey?: string;  // Required for OpenRouter
-  baseUrl?: string; // Optional for Ollama, defaults to http://localhost:11434
-  model?: string;   // Optional, defaults based on provider
-}
+export const initializeLLM = (userConfig: LLMConfig) => {
+  // Validate and merge with defaults
+  const config = getConfig(llmConfigSchema.parse(userConfig));
 
-export const initializeLLM = (config: LLMConfig) => {
-  if (config.provider === 'openrouter') {
+  if (config.provider === 'openrouter' || config.provider === 'openai-compatible') {
     llm = new ChatOpenAI({
       openAIApiKey: config.apiKey,
-      modelName: config.model || 'anthropic/claude-3-sonnet-20240229',
+      modelName: config.model,
       configuration: {
-        baseURL: 'https://openrouter.ai/api/v1',
-        defaultHeaders: {
-          'HTTP-Referer': 'https://github.com/your-username/smart-postgres',
-          'X-Title': 'Smart Postgres',
-        },
+        baseURL: config.baseUrl,
+        defaultHeaders: config.defaultHeaders,
+        organization: config.organization,
       },
       temperature: 0,
     });
   } else {
     llm = new ChatOllama({
-      baseUrl: config.baseUrl || 'http://localhost:11434',
-      model: config.model || 'codellama:7b-instruct',
+      baseUrl: config.baseUrl,
+      model: config.model,
       temperature: 0,
     });
   }

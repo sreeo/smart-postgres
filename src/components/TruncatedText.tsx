@@ -15,12 +15,45 @@ export default function TruncatedText({ text, maxLength = 32, preserveNumbers = 
   const shouldTruncate = text.length > maxLength;
   const displayText = shouldTruncate ? `${text.substring(0, maxLength)}...` : text;
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        // Use Clipboard API if available and in secure context
+        navigator.clipboard.writeText(text).catch(err => {
+          console.error('Clipboard API failed:', err);
+          fallbackCopyText(text);
+        });
+      } else {
+        // Fallback for browsers without Clipboard API
+        fallbackCopyText(text);
+      }
     } catch (err) {
       console.error('Failed to copy text:', err);
     }
+  };
+
+  const fallbackCopyText = (text: string) => {
+    // Create temporary textarea
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    
+    // Avoid scrolling to bottom
+    textArea.style.top = '0';
+    textArea.style.left = '0';
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      document.execCommand('copy');
+    } catch (err) {
+      console.error('Fallback copy failed:', err);
+    }
+
+    document.body.removeChild(textArea);
   };
 
   if (!shouldTruncate) {

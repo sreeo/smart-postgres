@@ -1,4 +1,37 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { fetchOpenRouterModels, getModelDisplayName } from '../lib/openrouter';
+
+// Form Configuration
+const FORM_CONFIG = {
+  DEFAULT_PORT: 5432,
+  DEFAULT_PROVIDER: 'openrouter',
+  PROVIDERS: {
+    OPENROUTER: 'openrouter',
+    OLLAMA: 'ollama',
+    OPENAI_COMPATIBLE: 'openai-compatible',
+  },
+  PROVIDER_LABELS: {
+    OPENROUTER: 'OpenRouter (Claude, GPT-4)',
+    OLLAMA: 'Ollama (Local Models)',
+    OPENAI_COMPATIBLE: 'Custom OpenAI-Compatible',
+  },
+  ENDPOINTS: {
+    TEST_CONNECTION: '/api/query/test-connection',
+  },
+  PLACEHOLDERS: {
+    OLLAMA_URL: 'http://localhost:11434',
+    OPENAI_URL: 'https://api.example.com/v1',
+    OLLAMA_MODEL: 'codellama:7b-instruct',
+    OPENAI_MODEL: 'gpt-3.5-turbo',
+    CUSTOM_HEADERS: '{"X-Custom-Header": "value"}',
+  },
+} as const;
+
+interface OpenRouterModel {
+  id: string;
+  name: string;
+  description?: string;
+}
 
 interface ConfigFormProps {
   onConnect: (config: any) => void;
@@ -7,19 +40,24 @@ interface ConfigFormProps {
 export default function ConfigForm({ onConnect }: ConfigFormProps) {
   const [config, setConfig] = useState({
     host: '',
-    port: 5432,
+    port: FORM_CONFIG.DEFAULT_PORT,
     database: '',
     user: '',
     password: '',
-    llmProvider: 'openrouter',
-    openRouterKey: '',
-    ollamaUrl: 'http://localhost:11434',
-    ollamaModel: 'codellama:7b-instruct',
+    llmProvider: FORM_CONFIG.DEFAULT_PROVIDER,
+    apiKey: '',
+    baseUrl: '',
+    model: '',
+    organization: '',
+    customHeaders: '',
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testSuccess, setTestSuccess] = useState(false);
+  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
 
   const testConnection = async () => {
     setLoading(true);
@@ -27,7 +65,7 @@ export default function ConfigForm({ onConnect }: ConfigFormProps) {
     setTestSuccess(false);
 
     try {
-      const response = await fetch('/api/query/test-connection', {
+      const response = await fetch(FORM_CONFIG.ENDPOINTS.TEST_CONNECTION, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -80,21 +118,58 @@ export default function ConfigForm({ onConnect }: ConfigFormProps) {
       },
       llmConfig: {
         provider: config.llmProvider,
-        ...(config.llmProvider === 'openrouter' ? {
-          apiKey: config.openRouterKey,
-        } : {
-          baseUrl: config.ollamaUrl,
-          model: config.ollamaModel,
+        apiKey: config.apiKey,
+        ...(config.llmProvider === 'openai-compatible' && {
+          baseUrl: config.baseUrl,
+          model: config.model,
+          organization: config.organization || undefined,
+          defaultHeaders: config.customHeaders ? JSON.parse(config.customHeaders) : undefined,
+        }),
+        ...(config.llmProvider === 'ollama' && {
+          baseUrl: config.baseUrl || 'http://localhost:11434',
+          model: config.model || 'codellama:7b-instruct',
         }),
       },
     });
   };
+
+  // Fetch OpenRouter models when API key is provided
+  useEffect(() => {
+    async function loadModels() {
+      if (config.llmProvider === 'openrouter' && config.apiKey) {
+        setLoadingModels(true);
+        setModelError(null);
+        try {
+          console.log('Fetching OpenRouter models...');
+          const models = await fetchOpenRouterModels(config.apiKey);
+          console.log('Fetched models:', models);
+          setOpenRouterModels(models);
+          // Set the first model as default if none selected
+          if (!config.model && models.length > 0) {
+            setConfig(prev => ({ ...prev, model: models[0].id }));
+          }
+        } catch (error) {
+          console.error('Error fetching models:', error);
+          setModelError(error instanceof Error ? error.message : 'Failed to fetch models');
+          setOpenRouterModels([]);
+        } finally {
+          setLoadingModels(false);
+        }
+      }
+    }
+    loadModels();
+  }, [config.llmProvider, config.apiKey]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setConfig(prev => ({
       ...prev,
       [name]: name === 'port' ? parseInt(value) || '' : value,
+      // Reset model and set appropriate baseUrl when changing provider
+      ...(name === 'llmProvider' && { 
+        model: '', 
+        baseUrl: value === 'openrouter' ? 'https://openrouter.ai/api/v1' : '',
+      }),
     }));
     // Reset validation states when config changes
     setTestSuccess(false);
@@ -244,54 +319,118 @@ export default function ConfigForm({ onConnect }: ConfigFormProps) {
             onChange={handleChange}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
           >
-            <option value="openrouter">OpenRouter</option>
-            <option value="ollama">Ollama (Local)</option>
+            <option value={FORM_CONFIG.PROVIDERS.OPENROUTER}>{FORM_CONFIG.PROVIDER_LABELS.OPENROUTER}</option>
+            <option value={FORM_CONFIG.PROVIDERS.OLLAMA}>{FORM_CONFIG.PROVIDER_LABELS.OLLAMA}</option>
+            <option value={FORM_CONFIG.PROVIDERS.OPENAI_COMPATIBLE}>{FORM_CONFIG.PROVIDER_LABELS.OPENAI_COMPATIBLE}</option>
           </select>
         </div>
 
-        {config.llmProvider === 'openrouter' ? (
+        <div>
+          <label htmlFor="apiKey" className="block text-sm font-medium text-gray-900">
+            API Key
+          </label>
+          <input
+            type="password"
+            name="apiKey"
+            id="apiKey"
+            value={config.apiKey}
+            onChange={handleChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
+            required
+          />
+        </div>
+
+        {config.llmProvider !== 'openrouter' && (
           <div>
-            <label htmlFor="openRouterKey" className="block text-sm font-medium text-gray-900">
-              OpenRouter API Key
+            <label htmlFor="baseUrl" className="block text-sm font-medium text-gray-900">
+              {config.llmProvider === 'ollama' ? 'Ollama URL' : 'API Base URL'}
             </label>
             <input
-              type="password"
-              name="openRouterKey"
-              id="openRouterKey"
-              value={config.openRouterKey}
+              type="text"
+              name="baseUrl"
+              id="baseUrl"
+              value={config.baseUrl}
               onChange={handleChange}
+              placeholder={config.llmProvider === FORM_CONFIG.PROVIDERS.OLLAMA ? FORM_CONFIG.PLACEHOLDERS.OLLAMA_URL : FORM_CONFIG.PLACEHOLDERS.OPENAI_URL}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
-              required
+              required={config.llmProvider === 'openai-compatible'}
             />
           </div>
-        ) : (
+        )}
+
+        <div>
+          <label htmlFor="model" className="block text-sm font-medium text-gray-900">
+            Model Name
+          </label>
+          {config.llmProvider === 'openrouter' ? (
+            <div className="relative">
+              {loadingModels && (
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                  <svg className="animate-spin h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                </div>
+              )}
+              <select
+                name="model"
+                id="model"
+                value={config.model}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 pr-10"
+                disabled={loadingModels || !config.apiKey}
+              >
+                <option value="">Select a model</option>
+                {openRouterModels.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {getModelDisplayName(model.id)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <input
+              type="text"
+              name="model"
+              id="model"
+              value={config.model}
+              onChange={handleChange}
+              placeholder={config.llmProvider === FORM_CONFIG.PROVIDERS.OLLAMA ? FORM_CONFIG.PLACEHOLDERS.OLLAMA_MODEL : FORM_CONFIG.PLACEHOLDERS.OPENAI_MODEL}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
+            />
+          )}
+          {modelError && (
+            <p className="mt-2 text-sm text-red-600">{modelError}</p>
+          )}
+        </div>
+
+        {config.llmProvider === 'openai-compatible' && (
           <>
             <div>
-              <label htmlFor="ollamaUrl" className="block text-sm font-medium text-gray-900">
-                Ollama URL
+              <label htmlFor="organization" className="block text-sm font-medium text-gray-900">
+                Organization ID (Optional)
               </label>
               <input
                 type="text"
-                name="ollamaUrl"
-                id="ollamaUrl"
-                value={config.ollamaUrl}
+                name="organization"
+                id="organization"
+                value={config.organization}
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
-                required
               />
             </div>
             <div>
-              <label htmlFor="ollamaModel" className="block text-sm font-medium text-gray-900">
-                Ollama Model
+              <label htmlFor="customHeaders" className="block text-sm font-medium text-gray-900">
+                Custom Headers (Optional, JSON format)
               </label>
-              <input
-                type="text"
-                name="ollamaModel"
-                id="ollamaModel"
-                value={config.ollamaModel}
-                onChange={handleChange}
+              <textarea
+                name="customHeaders"
+                id="customHeaders"
+                value={config.customHeaders}
+                onChange={(e) => setConfig(prev => ({ ...prev, customHeaders: e.target.value }))}
+                placeholder={FORM_CONFIG.PLACEHOLDERS.CUSTOM_HEADERS}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
-                required
+                rows={3}
               />
             </div>
           </>

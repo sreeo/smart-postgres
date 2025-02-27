@@ -2,15 +2,40 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import SchemaViewer from './SchemaViewer';
 import TruncatedText from './TruncatedText';
+import { fetchOpenRouterModels, getModelDisplayName, OpenRouterModel } from '../lib/openrouter';
+import { loadHistory, saveHistory, clearHistory, exportHistory, importHistory } from '../lib/chatHistory';
+
+// Form Configuration
+const FORM_CONFIG = {
+  PROVIDERS: {
+    OPENROUTER: 'openrouter',
+    OLLAMA: 'ollama',
+    OPENAI_COMPATIBLE: 'openai-compatible',
+  },
+  PROVIDER_LABELS: {
+    OPENROUTER: 'OpenRouter (Claude, GPT-4)',
+    OLLAMA: 'Ollama (Local Models)',
+    OPENAI_COMPATIBLE: 'Custom OpenAI-Compatible',
+  },
+  PLACEHOLDERS: {
+    OLLAMA_URL: 'http://localhost:11434',
+    OPENAI_URL: 'https://api.example.com/v1',
+    OLLAMA_MODEL: 'codellama:7b-instruct',
+    OPENAI_MODEL: 'gpt-3.5-turbo',
+    CUSTOM_HEADERS: '{"X-Custom-Header": "value"}',
+  },
+} as const;
 
 interface QueryInterfaceProps {
   config: {
     dbConfig: any;
     llmConfig: {
-      provider: 'openrouter' | 'ollama';
-      apiKey?: string;
+      provider: 'openrouter' | 'ollama' | 'openai-compatible';
+      apiKey: string;
       baseUrl?: string;
       model?: string;
+      organization?: string;
+      defaultHeaders?: Record<string, string>;
     };
   };
   onDisconnect: () => void;
@@ -96,7 +121,41 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<QueryResult[]>([]);
+  
+  // Load history on component mount (client-side only)
+  useEffect(() => {
+    const loadSavedHistory = () => {
+      if (typeof window !== 'undefined' && config.dbConfig?.database) {
+        try {
+          const savedHistory = loadHistory(config.dbConfig.database);
+          if (savedHistory && savedHistory.length > 0) {
+            setHistory(savedHistory);
+          }
+        } catch (error) {
+          console.error('Error loading history:', error);
+        }
+      }
+    };
+    loadSavedHistory();
+  }, [config.dbConfig?.database]);
+
+  // Save history whenever it changes
+  useEffect(() => {
+    const saveCurrentHistory = () => {
+      if (typeof window !== 'undefined' && config.dbConfig?.database) {
+        try {
+          saveHistory(config.dbConfig.database, history);
+        } catch (error) {
+          console.error('Error saving history:', error);
+        }
+      }
+    };
+    saveCurrentHistory();
+  }, [history, config.dbConfig?.database]);
+  const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [pendingQuery, setPendingQuery] = useState<PendingQuery | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [llmConfig, setLlmConfig] = useState(config.llmConfig);
   const [showLLMConfig, setShowLLMConfig] = useState(false);
@@ -145,7 +204,29 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
 
   useEffect(() => {
     fetchSchema();
+    if (llmConfig.provider === 'openrouter' && llmConfig.apiKey) {
+      fetchModels(llmConfig.apiKey);
+    }
   }, [config.dbConfig]);
+
+  useEffect(() => {
+    if (llmConfig.provider === 'openrouter' && llmConfig.apiKey) {
+      fetchModels(llmConfig.apiKey);
+    }
+  }, [llmConfig.provider, llmConfig.apiKey]);
+
+  const fetchModels = async (apiKey: string) => {
+    if (!apiKey) return;
+    setLoadingModels(true);
+    try {
+      const models = await fetchOpenRouterModels(apiKey);
+      setAvailableModels(models);
+    } catch (error) {
+      console.error('Error fetching models:', error);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   useEffect(() => {
     if (resultsContainerRef.current) {
@@ -380,12 +461,62 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
     document.body.removeChild(link);
   };
 
+  const fallbackCopyText = (text: string) => {
+    // Create temporary textarea
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    
+    // Avoid scrolling to bottom
+    textArea.style.top = '0';
+    textArea.style.left = '0';
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      document.execCommand('copy');
+    } catch (err) {
+      console.error('Fallback copy failed:', err);
+    }
+
+    document.body.removeChild(textArea);
+  };
+
   const handleLLMConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setLlmConfig(prev => ({
-      ...prev,
-      [name]: value,
-    }));
+    setLlmConfig(prev => {
+      // If changing provider, handle provider-specific defaults
+      if (name === 'provider') {
+        const newConfig = {
+          ...prev,
+          [name]: value,
+          // Clear fields that don't apply to the new provider
+          baseUrl: '',
+          organization: '',
+          model: '',
+        };
+
+        // Set provider-specific defaults
+        if (value === 'openrouter') {
+          newConfig.model = config.llmConfig.model || '';
+        } else if (value === 'ollama') {
+          newConfig.baseUrl = FORM_CONFIG.PLACEHOLDERS.OLLAMA_URL;
+          newConfig.model = FORM_CONFIG.PLACEHOLDERS.OLLAMA_MODEL;
+        } else if (value === 'openai-compatible') {
+          newConfig.model = FORM_CONFIG.PLACEHOLDERS.OPENAI_MODEL;
+        }
+
+        return newConfig;
+      }
+
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
   };
 
   const handlePageChange = async (page: number) => {
@@ -539,38 +670,30 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                     <label htmlFor="model" className="block text-sm font-medium text-gray-900">
                       Model
                     </label>
-                    <select
-                      id="model"
-                      name="model"
-                      value={llmConfig.model || 'anthropic/claude-3.5-sonnet'}
-                      onChange={handleLLMConfigChange}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
-                    >
-                      <optgroup label="Anthropic">
-                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                        <option value="anthropic/claude-3-opus-20240229">Claude 3 Opus</option>
-                        <option value="anthropic/claude-3-haiku-20240307">Claude 3 Haiku</option>
-                        <option value="anthropic/claude-3-sonnet-20240229">Claude 3 Sonnet</option>
-                        <option value="anthropic/claude-2.1">Claude 2.1</option>
-                        <option value="anthropic/claude-2.0">Claude 2.0</option>
-                      </optgroup>
-                      <optgroup label="OpenAI">
-                        <option value="openai/gpt-4-turbo-preview">GPT-4 Turbo</option>
-                        <option value="openai/gpt-4">GPT-4</option>
-                        <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                      </optgroup>
-                      <optgroup label="Google">
-                        <option value="google/gemini-pro">Gemini Pro</option>
-                      </optgroup>
-                      <optgroup label="Mistral">
-                        <option value="mistralai/codestral-2501">Mistral CodeStarl</option>
-                      </optgroup>
-                    <optgroup label="Deepseek">
-                      <option value="deepseek/deepseek-r1-distill-llama-70b:free">Deepseek R1 Distill Llama 70B</option>
-                      <option value="deepseek/deepseek-chat:free">Deepseek Chat</option>
-                      <option value="deepseek/deepseek-r1">Deepseek R1</option>
-                    </optgroup>
-                    </select>
+                    {loadingModels ? (
+                      <div className="mt-1 flex items-center text-sm text-gray-500">
+                        <svg className="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading available models...
+                      </div>
+                    ) : (
+                      <select
+                        id="model"
+                        name="model"
+                        value={llmConfig.model || ''}
+                        onChange={handleLLMConfigChange}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900"
+                      >
+                        <option value="">Select a model</option>
+                        {availableModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {getModelDisplayName(model)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="apiKey" className="block text-sm font-medium text-gray-900">
@@ -662,15 +785,44 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                       <>
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(item.sqlQuery || '');
-                            // You could add a toast notification here
+                            const text = item.sqlQuery || '';
+                            try {
+                              if (navigator.clipboard && window.isSecureContext) {
+                                // Use Clipboard API if available and in secure context
+                                navigator.clipboard.writeText(text).then(() => {
+                                  setCopiedIndex(index);
+                                  setTimeout(() => setCopiedIndex(null), 2000);
+                                }).catch(err => {
+                                  console.error('Clipboard API failed:', err);
+                                  fallbackCopyText(text);
+                                });
+                              } else {
+                                // Fallback for browsers without Clipboard API
+                                fallbackCopyText(text);
+                                setCopiedIndex(index);
+                                setTimeout(() => setCopiedIndex(null), 2000);
+                              }
+                            } catch (error) {
+                              console.error('Failed to copy SQL:', error);
+                            }
                           }}
-                          className="inline-flex items-center px-2 py-1 text-xs border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          className={`inline-flex items-center px-2 py-1 text-xs border rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${copiedIndex === index ? 'border-green-500 text-green-700 bg-green-50 hover:bg-green-100' : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'}`}
                         >
-                          <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                          </svg>
-                          Copy
+                          {copiedIndex === index ? (
+                            <>
+                              <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                              </svg>
+                              Copy
+                            </>
+                          )}
                         </button>
                       <button
                         onClick={async () => {
@@ -934,17 +1086,80 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="useContext"
-                checked={useContext}
-                onChange={(e) => setUseContext(e.target.checked)}
-                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-              />
-              <label htmlFor="useContext" className="text-sm text-gray-700 dark:text-gray-300">
-                Use previous query as context
-              </label>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="useContext"
+                    checked={useContext}
+                    onChange={(e) => setUseContext(e.target.checked)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="useContext" className="text-sm text-gray-700 dark:text-gray-300">
+                    Use previous query as context
+                  </label>
+                </div>
+              </div>
+              
+              {history.length > 0 && (
+                <div className="flex items-center space-x-3 justify-end text-sm">
+                  <button
+                    type="button"
+                    onClick={() => exportHistory(config.dbConfig.database, history)}
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    Export History
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to clear the chat history?')) {
+                        clearHistory(config.dbConfig.database);
+                        setHistory([]);
+                      }
+                    }}
+                    className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                  >
+                    Clear History
+                  </button>
+                </div>
+              )}
+              
+              <div className="flex items-center space-x-2">
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const importedData = await importHistory(file);
+                      if (importedData) {
+                        if (importedData.database === config.dbConfig.database) {
+                          if (window.confirm('Do you want to restore this chat history? This will replace your current history.')) {
+                            setHistory(importedData.history);
+                          }
+                        } else {
+                          alert('This history file is for a different database.');
+                        }
+                      } else {
+                        alert('Failed to import chat history. Please check the file format.');
+                      }
+                      // Clear the input
+                      e.target.value = '';
+                    }
+                  }}
+                  className="hidden"
+                  id="historyFileInput"
+                />
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('historyFileInput')?.click()}
+                  className="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300"
+                >
+                  Import History
+                </button>
+              </div>
             </div>
 
             {contextSummary && (
@@ -958,7 +1173,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
               </div>
             )}
 
-        <div className="flex space-x-4">
+        <div className="space-y-3">
           <textarea
             value={query}
             onChange={(e) => {
@@ -976,16 +1191,24 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
               }
             }}
             placeholder="Ask a question about your database..."
-            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 min-h-[80px] overflow-y-hidden"
+            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 min-h-[80px] overflow-y-hidden"
             style={{ resize: 'none' }}
             disabled={loading || !!pendingQuery}
           />
           <button
             type="submit"
             disabled={loading || !!pendingQuery}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+            className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
           >
-            {loading ? 'Processing...' : 'Ask'}
+            {loading ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Processing...
+              </>
+            ) : 'Ask'}
           </button>
             </div>
         </div>
