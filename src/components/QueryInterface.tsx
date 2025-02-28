@@ -117,6 +117,7 @@ interface PaginationState {
 }
 
 export default function QueryInterface({ config, onDisconnect }: QueryInterfaceProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme } = useTheme();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -850,7 +851,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                             }
 
                             // Add the rerun result to history
-                            setHistory(prev => [...prev, {
+                            const newHistory = [...history, {
                               type: 'query',
                               naturalQuery: `Rerun: ${item.naturalQuery}`,
                               sqlQuery: item.sqlQuery,
@@ -861,12 +862,17 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                                 startTime: startTime.toISOString(),
                                 duration: duration
                               }
-                            }]);
+                            }];
+                            setHistory(newHistory);
+                            // Scroll to bottom after state update
+                            setTimeout(() => {
+                              bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
                             setPagination(data.pagination);
                           } catch (error: any) {
                             const endTime = new Date();
                             const duration = endTime.getTime() - startTime.getTime();
-                            setHistory(prev => [...prev, {
+                            const newHistory = [...history, {
                               type: 'query',
                               naturalQuery: `Rerun: ${item.naturalQuery}`,
                               sqlQuery: item.sqlQuery,
@@ -879,7 +885,12 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                                 startTime: startTime.toISOString(),
                                 duration: duration
                               }
-                            }]);
+                            }];
+                            setHistory(newHistory);
+                            // Scroll to bottom after state update
+                            setTimeout(() => {
+                              bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
                           } finally {
                             setLoading(false);
                           }
@@ -913,7 +924,23 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                       </button>
                     )}
                   </div>
-                  {item.result && item.result.length > 0 ? (
+                  {item.validation === 'ERROR' ? (
+                    <div className="mt-2 p-4 bg-red-50 border border-red-200 rounded-md">
+                      <div className="flex">
+                        <div className="flex-shrink-0">
+                          <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-red-800">Error executing query</h3>
+                          <div className="mt-2 text-sm text-red-700">
+                            <p>{item.error?.message}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : item.result && item.result.length > 0 ? (
                     <div className="mt-2 overflow-x-auto max-h-[300px]">
                       {// Check if it's an aggregate result
                       item.result.length === 1 && Object.keys(item.result[0]).length === 1 ? (
@@ -977,11 +1004,7 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                   )}
                 </div>
 
-                {item.validation !== 'SUCCESS' && (
-                  <div className="bg-yellow-50 p-4 rounded-lg">
-                    <p className="text-gray-900">{item.validation}</p>
-                  </div>
-                )}
+
               </>
             )}
           </div>
@@ -1190,29 +1213,107 @@ export default function QueryInterface({ config, onDisconnect }: QueryInterfaceP
                 }
               }
             }}
-            placeholder="Ask a question about your database..."
+            placeholder="Ask a question about your database or write SQL directly..."
             className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 min-h-[80px] overflow-y-hidden"
             style={{ resize: 'none' }}
             disabled={loading || !!pendingQuery}
           />
-          <button
-            type="submit"
-            disabled={loading || !!pendingQuery}
-            className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-          >
-            {loading ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Processing...
-              </>
-            ) : 'Ask'}
-          </button>
+          <div className="flex space-x-3">
+            <button
+              type="submit"
+              disabled={loading || !!pendingQuery}
+              className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+            >
+              {loading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Processing...
+                </>
+              ) : 'Ask AI'}
+            </button>
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!query.trim()) return;
+
+                setLoading(true);
+                const startTime = new Date();
+                try {
+                  const response = await fetch('/api/execute-sql', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      query: query.trim(),
+                      dbConfig: config.dbConfig,
+                    }),
+                  });
+
+                  const data = await response.json();
+                  const endTime = new Date();
+                  const duration = endTime.getTime() - startTime.getTime();
+
+                  if (!data.success) {
+                    throw new Error(data.error);
+                  }
+
+                  const newHistory = [...history, {
+                    type: 'query',
+                    naturalQuery: 'Direct SQL: ' + query.trim(),
+                    sqlQuery: query.trim(),
+                    result: data.data,
+                    validation: 'SUCCESS',
+                    timing: {
+                      startTime: startTime.toISOString(),
+                      duration: duration
+                    }
+                  }];
+                  setHistory(newHistory);
+                  // Scroll to bottom after state update
+                  setTimeout(() => {
+                    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                } catch (error: any) {
+                  const endTime = new Date();
+                  const duration = endTime.getTime() - startTime.getTime();
+                  const newHistory = [...history, {
+                    type: 'query',
+                    naturalQuery: 'Direct SQL: ' + query.trim(),
+                    sqlQuery: query.trim(),
+                    result: [],
+                    validation: 'ERROR',
+                    error: {
+                      message: error.message,
+                    },
+                    timing: {
+                      startTime: startTime.toISOString(),
+                      duration: duration
+                    }
+                  }];
+                  setHistory(newHistory);
+                  // Scroll to bottom after state update
+                  setTimeout(() => {
+                    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading || !!pendingQuery}
+              className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+            >
+              Execute SQL
+            </button>
+          </div>
             </div>
         </div>
       </form>
+        <div ref={bottomRef} />
       </div>
 
       {// Add schema viewer only if dbSchema exists
